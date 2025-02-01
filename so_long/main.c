@@ -11,6 +11,7 @@
 /* ************************************************************************** */
 
 #include "so_long.h"
+
 void	ft_free(char **ptr)
 {
 	size_t	i;
@@ -26,11 +27,10 @@ void	ft_free(char **ptr)
 	free(ptr);
 }
 
-void free_all(t_map *map, char **ext)
+void free_all(t_map *map)
 {
 	ft_free(map->map);
 	free(map);
-	free(*ext);
 }
 
 int	count_lines(int fd)
@@ -101,12 +101,13 @@ int	check_components(t_map *map, int i)
 {
 	int	E;
 	int	P;
-	int	C;
+	int X;
 	int	y;
 
 	E = 0;
 	P = 0;
-	C = 0;
+	map->coin_count = 0;
+	X = 0;
 	while (map->map[i])
 	{
 		y = 0;
@@ -115,25 +116,31 @@ int	check_components(t_map *map, int i)
 			if (map->map[i][y] == 'E')
 				E++;
 			else if (map->map[i][y] == 'P')
+			{
+				map->x_player = i;
+				map->y_player = y;
 				P++;
+			}
 			else if (map->map[i][y] == 'C')
-				C++;
+				map->coin_count++;
+			else if (map->map[i][y] == 'X')
+				X++;
 			else if (map->map[i][y] != '1' && map->map[i][y] != '0')
 				return (1);
 			y++;
 		}
 		i++;
 	}
-	if (E > 1 || E == 0 || P == 0 || P > 1 || C <= 0)
+	if (E > 1 || E == 0 || P == 0 || P > 1 || map->coin_count <= 0)
 		return (1);
-	return (E + P + C);
+	return (E + P + map->coin_count);
 }
 
 void flood_fill(char **map, int x, int y, int *i)
 {
 	if (x < 0 || y < 0)
 		return ;
-	if (map[x][y] == '1' || map[x][y] == 'f')
+	if (map[x][y] == '1' || map[x][y] == 'f' || map[x][y] == 'X')
 		return ;
 	if (map[x][y] == 'P' || map[x][y] == 'E' || map[x][y] == 'C')
 		(*i)++;
@@ -143,29 +150,6 @@ void flood_fill(char **map, int x, int y, int *i)
 	flood_fill(map, x, y + 1, i);
 	flood_fill(map, x, y - 1, i);
 }
-
-// int check_around(char **map)
-// {
-// 	int i;
-// 	int y;
-
-// 	i = 0;
-// 	while (map[i])
-// 	{
-// 		y = 0;
-// 		while (map[i][y])
-// 		{
-// 			if (map[i][y] == 'C' || map[i][y] == 'E' || map[i][y] == 'P')
-// 			{
-// 				if (map[i - 1][y] == '1' && map[i + 1][y] == '1' && map[i][y - 1] == '1' && map[i][y + 1] == '1')
-// 					return (1);
-// 			}
-// 			y++;
-// 		}
-// 		i++;
-// 	}
-// 	return (0);
-// }
 
 int	check_path(char **map, int comp)
 {
@@ -190,19 +174,13 @@ int	check_path(char **map, int comp)
 	}
 	flood_fill(map, x, y, &check);
 	x = 0;
-	while (map[x])
-	{
-		printf("%s", map[x]);
-		x++;
-	}
-	printf("\n%d", check);
 	if (comp != check)
 		return (1);
 	return (0);
 }
 void inis_map(char **map, int i)
 {
-	while (i)
+	while (i >= 0)
 	{
 		map[i] = NULL;
 		i--;
@@ -260,13 +238,14 @@ int store_map(int fd, t_map *map, char *argv)
 	size_t	len;
 	char *temp;
 
-	if (fd < 1)
-		return (0);
 	i = count_lines(fd);
 	close(fd);
 	fd = open(argv, O_RDONLY);
 	if (fd < 1)
+	{
+		free(map);
 		return (0);
+	}
 	map->map = (char **)malloc((i + 1) * sizeof(char *));
 	if (!map->map)
 		return (1);
@@ -296,39 +275,71 @@ int store_map(int fd, t_map *map, char *argv)
 	return (0);
 }
 
-
-int	main(int argc, char **argv)
+int	check_ext(int argc, char **argv)
 {
-	char	*arg;
 	int		i;
 	char	*ext;
-	t_map	*map;
 
-	map = NULL;
-	arg = NULL;
 	i = 0;
 	if (argc < 2 || argc > 2)
-		return (0);
+		return (1);
 	while (argv[1][i])
 		i++;
 	if (i <= 4 || (i == 5 && argv[1][0] == '/'))
-		return (0);
+		return (1);
 	i -= 5;
 	ext = ft_substr(argv[1], i + 1, ft_strlen(argv[1]));
 	if (ft_strcmp(ext, ".ber") != 0)
-		return (0);
-	if (argv[1][i] == '/' || argv[1][i] == ' ')
-		return (0);
-	map = malloc(sizeof(t_map));
-	if (!map)
-		return (1);
-	if (store_map(open(argv[1], O_RDONLY), map, argv[1]) == 1)
 	{
-		free_all(map, &ext);
-		write(2, "Error\n", 6);
+		free(ext);
 		return (1);
 	}
-	free_all(map, &ext);
-	printf("here");
+	if (argv[1][i] == '/' || argv[1][i] == ' ')
+	{
+		free(ext);
+		return (1);
+	}
+	free(ext);
+	return (0);
+}
+
+int for_norm(t_map **map, int argc, char **argv, int *fd)
+{
+	if (check_ext(argc, argv) == 1)
+		return (1);
+	*map = malloc(sizeof(t_map));
+	if (!map)
+		return (1);
+	*fd = open(argv[1], O_RDONLY);
+	if (*fd < 0)
+		return (1);
+	return (0);
+}
+
+int	main(int argc, char **argv)
+{
+	int fd;
+	t_map	*map;
+
+	map = NULL;
+	if (for_norm(&map, argc, argv, &fd) == 1)
+		return (0);
+	if (store_map(fd, map, argv[1]) == 1)
+	{
+		free_all(map);
+		write(2, "Error\n", 6);
+		write (2, "Invalid map\n", 12);
+		return (1);
+	}
+	map->mlx = mlx_init();
+	if (open_window(map) == 1)
+	{
+		free_all(map);
+		mlx_destroy_window(map->mlx, map->win);
+		return (1);
+	}
+	mlx_loop(map->mlx);
+	free_all(map);
+	free_imgs(map, 14, 4, 4);
 	return (0);
 }
